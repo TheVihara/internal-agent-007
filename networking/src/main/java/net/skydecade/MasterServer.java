@@ -11,22 +11,42 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.CharsetUtil;
+import net.skydecade.connection.ClientConnection;
+import net.skydecade.connection.PacketHandler;
+import net.skydecade.connection.PacketSnapshots;
 import net.skydecade.models.PlayerInfo;
 import net.skydecade.models.ProxyServerInfo;
+import net.skydecade.protocol.GameServerConnectionInitializer;
+import net.skydecade.protocol.MasterServerInitializer;
+import net.skydecade.server.Connections;
+import net.skydecade.server.Logger;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class MasterServer {
     private final Map<String, PlayerInfo> players;
     private final List<ProxyServerInfo> proxyServers;
+    private PacketHandler packetHandler;
+    private Connections connections;
+
+    private ScheduledFuture<?> keepAliveTask;
+
+    private EventLoopGroup bossGroup;
+    private EventLoopGroup workerGroup;
 
     public MasterServer() {
         this.players = new HashMap<>();
         this.proxyServers = new ArrayList<>();
+        packetHandler = new PacketHandler(this);
+        connections = new Connections();
+
+        PacketSnapshots.initPackets(this);
     }
 
     public void addProxyServer(ProxyServerInfo proxyServer) {
@@ -34,16 +54,17 @@ public class MasterServer {
     }
 
     public void start() {
-        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        bossGroup = new NioEventLoopGroup(1);
+        workerGroup = new NioEventLoopGroup();
 
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     .childHandler(new MasterServerInitializer(this))
-                    .option(ChannelOption.SO_BACKLOG, 128)
-                    .childOption(ChannelOption.SO_KEEPALIVE, true);
+                    .childOption(ChannelOption.TCP_NODELAY, true)
+                    .localAddress(InetSocketAddress.createUnresolved("127.0.0.1", 12345))
+                    .bind();
 
             ChannelFuture future = bootstrap.bind(12345).sync();
             System.out.println("MasterServer started. Listening on port 12345");
@@ -54,6 +75,12 @@ public class MasterServer {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
+
+        keepAliveTask = workerGroup.scheduleAtFixedRate(this::broadcastKeepAlive, 0L, 5L, TimeUnit.SECONDS);
+    }
+
+    private void broadcastKeepAlive() {
+        connections.getAllConnections().forEach(ClientConnection::sendKeepAlive);
     }
 
     public synchronized void addPlayer(PlayerInfo player) {
@@ -115,7 +142,7 @@ public class MasterServer {
             Bootstrap bootstrap = new Bootstrap();
             bootstrap.group(workerGroup)
                     .channel(NioSocketChannel.class)
-                    .handler(new GameServerConnectionInitializer(clientHost, clientPort, targetAddress));
+                    .handler(new GameServerConnectionInitializer(this, clientHost, clientPort, targetAddress));
 
             ChannelFuture future = bootstrap.connect(targetAddress).sync();
             return (SocketChannel) future.channel();
@@ -172,9 +199,35 @@ public class MasterServer {
         }
     }
 
+    public PacketHandler getPacketHandler() {
+        return packetHandler;
+    }
+
+    public Connections getConnections() {
+        return connections;
+    }
+
+    private void stop() {
+        Logger.info("Stopping server...");
+
+        if (keepAliveTask != null) {
+            keepAliveTask.cancel(true);
+        }
+
+        if (bossGroup != null) {
+            bossGroup.shutdownGracefully();
+        }
+
+        if (workerGroup != null) {
+            workerGroup.shutdownGracefully();
+        }
+
+        Logger.info("Server stopped, Goodbye!");
+    }
+
     public static void main(String[] args) {
         MasterServer masterServer = new MasterServer();
-        masterServer.addProxyServer(new ProxyServerInfo("proxy-1", "127.0.0.1", 25565));
+        masterServer.addProxyServer(new ProxyServerInfo("proxy-1", "127.0.0.1", 25555));
         /*masterServer.addProxyServer(new ProxyServerInfo("proxy-2", "127.0.0.1", 25566));*/
         // Add more proxy servers as needed
         masterServer.start();
