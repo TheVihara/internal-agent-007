@@ -1,0 +1,4 @@
+rootProject.name = 'internal-agent-007'
+
+include 'networking'
+include 'proxy'

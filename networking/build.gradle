@@ -1,0 +1,23 @@
+plugins {
+    id 'java'
+}
+
+sourceCompatibility = 11
+targetCompatibility = 11
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation group: 'io.netty', name: 'netty-all', version: '4.1.86.Final'
+}
+
+// Define networking-specific configurations and tasks if needed
+
+jar {
+    // Specify the main class for the JAR
+    manifest {
+        attributes 'Main-Class': 'net.skydecade.MasterServer'
+    }
+}

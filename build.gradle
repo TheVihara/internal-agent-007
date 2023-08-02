@@ -1,0 +1,23 @@
+// build.gradle (Parent project)
+
+// Define the common configurations for all subprojects
+group 'net.skydecade'
+version '1.0.0'
+
+// Add common repositories
+repositories {
+    mavenCentral()
+}
+
+// Add common dependencies for all modules
+dependencies {
+    // Example: Common libraries used by all modules
+    //implementation 'com.example:some-common-library:1.0.0'
+}
+
+// Apply configurations to all subprojects (modules)
+subprojects {
+    apply plugin: 'java' // For Java projects, you can apply common plugins here
+}
+
+// Optional: Define additional configurations or tasks for the parent project
