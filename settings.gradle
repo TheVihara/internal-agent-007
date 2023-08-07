@@ -1,4 +1,5 @@
 rootProject.name = 'internal-agent-007'
 
-include 'networking'
-include 'proxy'
+include 'server-coordinator'
+include 'proxy-core-server'
+include 'bungee-connector'
