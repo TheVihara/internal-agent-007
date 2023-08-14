@@ -1,107 +1,108 @@
 package net.skydecade.server;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import net.skydecade.connection.ClientConnection;
-import net.skydecade.connection.PacketHandler;
-import net.skydecade.connection.PacketSnapshots;
+import io.netty.util.concurrent.Future;
+import net.skydecade.handlers.ControllerHandler;
 import net.skydecade.models.PlayerInfo;
-import net.skydecade.protocol.ControllerInitializer;
+import net.skydecade.packets.InPlayerChatMessagePacket;
+import net.skydecade.packets.InPlayerJoinPacket;
+import net.skydecade.packets.InPlayerSwitchServerPacket;
+import net.skydecade.packets.OutPlayerChatMessagePacket;
+import net.skydecade.protocol.event.EventRegistry;
+import net.skydecade.protocol.event.PacketSubscriber;
+import net.skydecade.protocol.registry.IPacketRegistry;
 
 import java.net.InetSocketAddress;
 import java.util.*;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 public class ServerController {
-    private final Map<String, PlayerInfo> players;
-    private PacketHandler packetHandler;
-    private Connections connections;
-    private ScheduledFuture<?> keepAliveTask;
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
+    private final Map<UUID, PlayerInfo> players;
+    private final ServerBootstrap bootstrap;
+    private final IPacketRegistry packetRegistry;
+    private final EventRegistry eventRegistry;
 
-    public ServerController() {
+    private EventLoopGroup parentGroup = new NioEventLoopGroup();
+    private EventLoopGroup workerGroup = new NioEventLoopGroup();
+
+    public ServerController(IPacketRegistry packetRegistry, Consumer<Future<? super Void>> doneCallback, EventRegistry eventRegistry) {
         this.players = new HashMap<>();
-        packetHandler = new PacketHandler(this);
-        connections = new Connections();
+        this.packetRegistry = packetRegistry;
+        this.eventRegistry = eventRegistry;
 
-        PacketSnapshots.initPackets(this);
-    }
-
-    public void start() {
-        bossGroup = new NioEventLoopGroup(1);
-        workerGroup = new NioEventLoopGroup();
-
-        ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(bossGroup, workerGroup)
-                .channel(NioServerSocketChannel.class)
-                .childHandler(new ControllerInitializer(this))
-                .childOption(ChannelOption.TCP_NODELAY, true)
-                .localAddress(new InetSocketAddress("127.0.0.1", 12345));
-
-        // Now that the server is successfully configured, let's start it on a separate thread
-        new Thread(() -> {
-            try {
-                ChannelFuture future = bootstrap.bind().sync();
-                System.out.println("ServerController started. Listening on port 12345");
-
-                // Schedule the keep-alive task after the server is started and listening
-                keepAliveTask = workerGroup.scheduleAtFixedRate(this::broadcastKeepAlive, 0L, 5L, TimeUnit.SECONDS);
-
-                // Wait until the server socket is closed
-                future.channel().closeFuture().sync();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            } finally {
-                bossGroup.shutdownGracefully();
-                workerGroup.shutdownGracefully();
+        eventRegistry.registerEvents(new Object() {
+            // The method signature of a PacketSubscriber must contain a valid packet and may contain the ChannelHandlerContext (optional)
+            @PacketSubscriber
+            public void onPacketReceive(InPlayerJoinPacket packet, ChannelHandlerContext ctx) {
+                UUID uuid = packet.getUuid();
+                if (!players.containsKey(uuid)) {
+                    PlayerInfo playerInfo = new PlayerInfo(packet.getUsername());
+                    playerInfo.setCurrentGameServer(packet.getConnectedServer());
+                    System.out.println("Player with the username " + packet.getUsername() + " and uuid of " + packet.getUuid().toString() + " joined from " + ctx.channel().remoteAddress().toString() + " to server " + packet.getConnectedServer());
+                    players.put(packet.getUuid(), playerInfo);
+                }
             }
-        }).start();
+
+            @PacketSubscriber
+            public void onPacketReceive(InPlayerSwitchServerPacket packet, ChannelHandlerContext ctx) {
+                PlayerInfo playerInfo = players.get(packet.getUuid());
+                String newServer = packet.getNewServer();
+                System.out.println("Player " + playerInfo.getPlayerName() + " switched from server " + playerInfo.getCurrentGameServer() + " to " + newServer);
+                playerInfo.setCurrentGameServer(packet.getNewServer());
+            }
+
+            @PacketSubscriber
+            public void onPacketReceive(InPlayerChatMessagePacket packet, ChannelHandlerContext ctx) {
+                PlayerInfo playerInfo = players.get(packet.getUuid());
+                String msg = packet.getMsg();
+                List<UUID> receivers = packet.getRecievers();
+
+                System.out.println("Player " + playerInfo.getPlayerName() + " sent message '" + msg + "' to " + Arrays.toString(receivers.toArray()));
+
+                for (UUID receiver : receivers) {
+                    if (players.containsKey(receiver)) {
+                        OutPlayerChatMessagePacket outPacket = new OutPlayerChatMessagePacket();
+
+                        outPacket.setUuid(receiver);
+                        outPacket.setMsg(msg);
+
+                        ctx.writeAndFlush(outPacket);
+                    }
+                }
+            }
+        });
+
+        this.bootstrap = new ServerBootstrap()
+                .option(ChannelOption.AUTO_READ, true)
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .group(parentGroup, workerGroup)
+                .childHandler(new ControllerHandler(packetRegistry, eventRegistry))
+                .channel(NioServerSocketChannel.class);
+
+        try {
+            this.bootstrap.bind(new InetSocketAddress("127.0.0.1", 12345))
+                    .awaitUninterruptibly().sync().addListener(doneCallback::accept);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     private void stop() {
         Logger.info("Stopping server...");
 
-        if (keepAliveTask != null) {
-            keepAliveTask.cancel(true);
-        }
-
-        if (bossGroup != null) {
-            bossGroup.shutdownGracefully();
-        }
-
-        if (workerGroup != null) {
-            workerGroup.shutdownGracefully();
+        try {
+            parentGroup.shutdownGracefully().get();
+            workerGroup.shutdownGracefully().get();
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
         }
 
         Logger.info("Server stopped, Goodbye!");
-    }
-
-    private void broadcastKeepAlive() {
-        Logger.info("broadcasting");
-        connections.getAllConnections().forEach(ClientConnection::sendKeepAlive);
-    }
-
-    public synchronized void addPlayer(PlayerInfo player) {
-        players.put(player.getIpAddress() + ":" + player.getPort(), player);
-    }
-
-    public synchronized void removePlayer(PlayerInfo player) {
-        players.remove(player.getIpAddress() + ":" + player.getPort());
-    }
-
-    public synchronized PlayerInfo getPlayerByAddress(String ipAddress, int port) {
-        return players.get(ipAddress + ":" + port);
-    }
-
-    public PacketHandler getPacketHandler() {
-        return packetHandler;
-    }
-
-    public Connections getConnections() {
-        return connections;
     }
 }

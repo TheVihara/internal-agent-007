@@ -9,10 +9,8 @@ public class PlayerInfo {
     private String serverAddress;
     private int serverPort;
 
-    public PlayerInfo(String playerName, String ipAddress, int port) {
+    public PlayerInfo(String playerName) {
         this.playerName = playerName;
-        this.ipAddress = ipAddress;
-        this.port = port;
         this.currentGameServer = null;
     }
 

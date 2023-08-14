@@ -9,8 +9,8 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/bukkit-connector" />
             <option value="$PROJECT_DIR$/bungee-connector" />
-            <option value="$PROJECT_DIR$/proxy-core-server" />
             <option value="$PROJECT_DIR$/server-coordinator" />
           </set>
         </option>
