@@ -8,22 +8,21 @@ targetCompatibility = 11
 
 repositories {
     mavenCentral()
-    maven {
-        name = "papermc-repo"
-        url = "https://repo.papermc.io/repository/maven-public/"
-    }
 }
 
 dependencies {
-    compileOnly 'org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT'
-    implementation group: 'it.unimi.dsi', name: 'fastutil', version: '8.5.12'
-    implementation project(':internal-protocol')
     implementation 'com.grack:nanojson:1.8'
+    implementation group: 'it.unimi.dsi', name: 'fastutil', version: '8.5.12'
     implementation group: 'io.netty', name: 'netty-all', version: '4.1.86.Final'
 }
 
 // Define networking-specific configurations and tasks if needed
 
 shadowJar {
+    // Specify the main class for the JAR
+    manifest {
+        attributes 'Main-Class': 'net.skydecade.protocol.ProtocolLauncher'
+    }
+
     minimize()
 }

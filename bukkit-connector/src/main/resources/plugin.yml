@@ -1,4 +1,4 @@
 name: bukkit-connector
 version: 0.0.0
 author: Vihara
-main: net.skydecade.BukkitConnector
+main: net.skydecade.connector.bukkit.BukkitConnector

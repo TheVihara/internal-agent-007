@@ -1,4 +1,4 @@
 name: bungee-connector
 version: 0.0.0
 author: Vihara
-main: net.skydecade.BungeeConnector
+main: net.skydecade.connector.bungee.BungeeConnector

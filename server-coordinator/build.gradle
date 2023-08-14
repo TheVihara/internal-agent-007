@@ -12,6 +12,7 @@ repositories {
 
 dependencies {
     implementation 'com.grack:nanojson:1.8'
+    implementation project(':internal-protocol')
     implementation group: 'it.unimi.dsi', name: 'fastutil', version: '8.5.12'
     implementation group: 'io.netty', name: 'netty-all', version: '4.1.86.Final'
 }
@@ -21,7 +22,7 @@ dependencies {
 shadowJar {
     // Specify the main class for the JAR
     manifest {
-        attributes 'Main-Class': 'net.skydecade.ControllerLauncher'
+        attributes 'Main-Class': 'net.skydecade.coordinator.ControllerLauncher'
     }
 
     minimize()

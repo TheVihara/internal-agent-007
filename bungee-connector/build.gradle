@@ -17,6 +17,7 @@ repositories {
 dependencies {
     compileOnly 'io.github.waterfallmc:waterfall-api:1.20-R0.1-SNAPSHOT'
     implementation group: 'it.unimi.dsi', name: 'fastutil', version: '8.5.12'
+    implementation project(':internal-protocol')
     implementation 'com.grack:nanojson:1.8'
     implementation group: 'io.netty', name: 'netty-all', version: '4.1.86.Final'
 }
